@@ -1,0 +1,352 @@
+{% load crispy_forms_tags %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Disease Predictor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .wizard-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .wizard-step {
+            display: none;
+        }
+        .wizard-step.active {
+            display: block;
+        }
+        .prediction-card {
+            transition: transform 0.2s;
+            margin-bottom: 20px;
+        }
+        .prediction-card:hover {
+            transform: translateY(-5px);
+        }
+        .confidence-bar {
+            height: 5px;
+            background-color: #e9ecef;
+            margin-top: 10px;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .confidence-level {
+            height: 100%;
+            background-color: #007bff;
+            transition: width 0.6s ease;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .loading-spinner {
+            width: 3rem;
+            height: 3rem;
+        }
+        .severity-mild { color: #28a745; }
+        .severity-moderate { color: #ffc107; }
+        .severity-severe { color: #dc3545; }
+        .progress-indicator {
+            margin: 20px 0;
+        }
+        .follow-up-questions {
+            margin-top: 20px;
+            display: none;
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        .btn-group-toggle {
+            margin: 20px 0;
+        }
+        .btn-group-toggle .btn {
+            margin-right: 10px;
+            padding: 10px 30px;
+        }
+        .question-number {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+        .question-text {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            color: #212529;
+        }
+        .follow-up-input {
+            margin-bottom: 15px;
+        }
+        .form-label {
+            font-weight: 500;
+            color: #495057;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <div class="wizard-container">
+            <div class="card shadow">
+                <div class="card-body">
+                    <h1 class="text-center mb-4">AI Disease Predictor</h1>
+                    <p class="text-center text-muted mb-4">Answer a few questions to help us identify potential conditions</p>
+                    
+                    <!-- Progress Bar -->
+                    <div class="progress-indicator">
+                        <div class="progress">
+                            <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <p class="text-center mt-2"><small>Progress: <span id="progress-text">0%</span></small></p>
+                    </div>
+                    
+                    <!-- Question Wizard -->
+                    <div id="question-wizard">
+                        {% if first_question %}
+                        <div class="wizard-step active" data-order="{{ first_question.order }}">
+                            <div class="question-number">Question 1</div>
+                            <div class="question-text">{{ first_question.question }}</div>
+                            
+                            <div class="btn-group-toggle d-flex justify-content-center" data-toggle="buttons">
+                                <button class="btn btn-outline-primary btn-lg answer-btn" data-value="Yes">Yes</button>
+                                <button class="btn btn-outline-primary btn-lg answer-btn" data-value="No">No</button>
+                            </div>
+                            
+                            <div class="follow-up-questions">
+                                {% for question in first_question.follow_up_questions %}
+                                <div class="mb-3">
+                                    <label class="form-label">{{ question }}</label>
+                                    <input type="text" class="form-control follow-up-input" data-question="{{ forloop.counter0 }}" placeholder="Your answer...">
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="alert alert-warning">
+                            No questions available. Please contact the administrator.
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Loading Indicator -->
+                    <div id="loading" class="loading">
+                        <div class="spinner-border loading-spinner text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3">Analyzing your responses...</p>
+                    </div>
+                    
+                    <!-- Results Section -->
+                    <div id="results" style="display: none;">
+                        <h3 class="mb-4">Based on your symptoms, here are potential conditions:</h3>
+                        <div id="predictions-container" class="row">
+                            <!-- Predictions will be inserted here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Templates for dynamic content -->
+    <template id="follow-up-template">
+        <div class="mb-3">
+            <label class="form-label">{question}</label>
+            <input type="text" class="form-control follow-up-input" data-question="{index}" placeholder="Your answer...">
+        </div>
+    </template>
+    
+    <template id="prediction-template">
+        <div class="col-md-6">
+            <div class="card prediction-card">
+                <div class="card-body">
+                    <h5 class="card-title d-flex justify-content-between">
+                        {name}
+                        <span class="severity-{severity}">
+                            {severityDisplay}
+                        </span>
+                    </h5>
+                    <div class="confidence-bar">
+                        <div class="confidence-level" style="width: {confidence}%"></div>
+                    </div>
+                    <p class="text-muted small">Confidence: {confidence}%</p>
+                    
+                    <button class="btn btn-sm btn-outline-primary" type="button" 
+                            data-bs-toggle="collapse" 
+                            data-bs-target="#details{index}">
+                        Show Details
+                    </button>
+                    
+                    <div class="collapse mt-3" id="details{index}">
+                        <div class="card card-body bg-light">
+                            <h6>Description:</h6>
+                            <p>{description}</p>
+                            
+                            <h6>Treatment:</h6>
+                            <p>{treatment}</p>
+                            
+                            {preventionHtml}
+                            
+                            {doctorAdviceHtml}
+                            
+                            <h6>Common Age Groups:</h6>
+                            <p>{ageGroups}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+    
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        $(document).ready(function() {
+            let currentQuestion = 1;
+            const totalQuestions = 6;
+            const answers = {};
+            
+            function updateProgress() {
+                const progress = (currentQuestion - 1) / totalQuestions * 100;
+                $('.progress-bar').css('width', progress + '%');
+                $('#progress-text').text(Math.round(progress) + '%');
+            }
+            
+            $(document).on('click', '.answer-btn', function() {
+                const $step = $(this).closest('.wizard-step');
+                const order = $step.data('order');
+                const answer = $(this).data('value');
+                
+                // Store the answer
+                answers[order] = answer;
+                
+                // Handle follow-up questions if answer is Yes
+                if (answer === 'Yes') {
+                    const $followUp = $step.find('.follow-up-questions');
+                    $followUp.slideDown();
+                } else {
+                    $step.find('.follow-up-questions').slideUp();
+                }
+                
+                // Mark other buttons as inactive
+                $step.find('.answer-btn').removeClass('btn-primary').addClass('btn-outline-primary');
+                $(this).removeClass('btn-outline-primary').addClass('btn-primary');
+                
+                // Get next question
+                $.ajax({
+                    url: '',
+                    type: 'POST',
+                    data: JSON.stringify({
+                        action: 'get_next_question',
+                        current_order: order,
+                        answers: answers
+                    }),
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    contentType: 'application/json',
+                    success: function(response) {
+                        if (response.complete) {
+                            showResults(response.predictions);
+                        } else {
+                            showNextQuestion(response.question);
+                        }
+                    }
+                });
+            });
+            
+            $(document).on('change', '.follow-up-input', function() {
+                const order = $(this).closest('.wizard-step').data('order');
+                const questionIndex = $(this).data('question');
+                
+                if (!answers[order + '_followup']) {
+                    answers[order + '_followup'] = {};
+                }
+                answers[order + '_followup'][questionIndex] = $(this).val();
+            });
+            
+            function showNextQuestion(question) {
+                currentQuestion++;
+                updateProgress();
+                
+                const $newStep = $('<div>')
+                    .addClass('wizard-step')
+                    .attr('data-order', question.order);
+                
+                const followUpHtml = question.follow_ups.map((q, index) => `
+                    <div class="mb-3">
+                        <label class="form-label">${q}</label>
+                        <input type="text" class="form-control follow-up-input" data-question="${index}" placeholder="Your answer...">
+                    </div>
+                `).join('');
+                
+                $newStep.html(`
+                    <div class="question-number">Question ${currentQuestion}</div>
+                    <div class="question-text">${question.text}</div>
+                    
+                    <div class="btn-group-toggle d-flex justify-content-center" data-toggle="buttons">
+                        <button class="btn btn-outline-primary btn-lg answer-btn" data-value="Yes">Yes</button>
+                        <button class="btn btn-outline-primary btn-lg answer-btn" data-value="No">No</button>
+                    </div>
+                    
+                    <div class="follow-up-questions">
+                        ${followUpHtml}
+                    </div>
+                `);
+                
+                // Hide current step and show new one
+                $('.wizard-step.active').fadeOut(300, function() {
+                    $(this).removeClass('active');
+                    $newStep.hide().appendTo('#question-wizard').addClass('active').fadeIn(300);
+                });
+            }
+            
+            function showResults(predictions) {
+                // Hide wizard and show loading
+                $('#question-wizard').hide();
+                $('#loading').show();
+                
+                setTimeout(function() {
+                    $('#loading').hide();
+                    
+                    // Build predictions HTML
+                    const $container = $('#predictions-container');
+                    $container.empty();
+                    
+                    predictions.forEach((prediction, index) => {
+                        const template = $('#prediction-template').html()
+                            .replace(/{name}/g, prediction.name)
+                            .replace(/{severity}/g, prediction.severity)
+                            .replace(/{severityDisplay}/g, prediction.severity.charAt(0).toUpperCase() + prediction.severity.slice(1))
+                            .replace(/{confidence}/g, prediction.confidence)
+                            .replace(/{description}/g, prediction.description)
+                            .replace(/{treatment}/g, prediction.treatment)
+                            .replace(/{ageGroups}/g, prediction.common_age_groups)
+                            .replace(/{index}/g, index)
+                            .replace(/{preventionHtml}/g, prediction.prevention ? `
+                                <h6>Prevention:</h6>
+                                <p>${prediction.prevention}</p>
+                            ` : '')
+                            .replace(/{doctorAdviceHtml}/g, prediction.when_to_see_doctor ? `
+                                <h6>When to See a Doctor:</h6>
+                                <p>${prediction.when_to_see_doctor}</p>
+                            ` : '');
+                        
+                        $container.append(template);
+                    });
+                    
+                    // Show results
+                    $('#results').fadeIn();
+                    
+                    // Update progress to 100%
+                    $('.progress-bar').css('width', '100%');
+                    $('#progress-text').text('100%');
+                }, 1500);
+            }
+        });
+    </script>
+</body>
+</html>
